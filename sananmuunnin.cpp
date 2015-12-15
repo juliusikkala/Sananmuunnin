@@ -31,13 +31,12 @@ SOFTWARE.
 #include <fstream>
 #include <stdexcept>
 #include <vector>
-#include <set>
 #include <regex>
 #include <algorithm>
 #include <cstring>
-static std::set<std::string> read_lines_tolower(const char* path)
+static std::vector<std::string> read_lines_tolower(const char* path)
 {
-    std::set<std::string> res;
+    std::vector<std::string> res;
     std::ifstream file;
     file.open(path, std::ios::in|std::ios::binary);
     if(!file)
@@ -50,7 +49,7 @@ static std::set<std::string> read_lines_tolower(const char* path)
         if(str.size()!=0)
         {
             std::transform(str.begin(), str.end(), str.begin(), ::tolower);
-            res.insert(str);
+            res.push_back(str);
         }
     }
     file.close();
@@ -142,9 +141,15 @@ static bool sananmuunnos(
     out_word2.append(word2, word2_len, std::string::npos);
     return true;
 }
+template<typename T>
+static bool is_in_sorted_vector(const T& t, const std::vector<T>& vec)
+{
+    auto it=std::lower_bound(vec.begin(), vec.end(), t);
+    return it!=vec.end()&&*it==t;
+}
 static size_t search_and_print(
-    const std::set<std::string>& search_words,
-    const std::set<std::string>& all_words
+    const std::vector<std::string>& search_words,
+    const std::vector<std::string>& all_words
 ){
     std::string out_word1, out_word2;
     size_t n=0;
@@ -153,7 +158,8 @@ static size_t search_and_print(
         for(const std::string& word2: all_words)
         {
             sananmuunnos(word1, word2, out_word1, out_word2);
-            if(all_words.count(out_word1)&&all_words.count(out_word2))
+            if(is_in_sorted_vector(out_word1, all_words)&&
+               is_in_sorted_vector(out_word2, all_words))
             {
                 n++;
                 std::cout<<word1<<" "<<word2<<" => "<<out_word1<<" "<<out_word2<<std::endl;
@@ -170,17 +176,19 @@ int main(int argc, char** argv)
         return 1;
     }
     try {
-        std::set<std::string> words(read_lines_tolower(argv[1]));
+        std::vector<std::string> words(read_lines_tolower(argv[1]));
+        /* The vector must be sorted so that it can be used with lower_bound*/
+        std::sort(words.begin(), words.end());
         if(argc==2)
         {
             search_and_print(words, words);
         }
         else
         {
-            std::set<std::string> from;
+            std::vector<std::string> from;
             if(argc==3)
             {
-                from.insert(argv[2]);
+                from.push_back(argv[2]);
             }
             else if(argc==4)
             {
@@ -194,7 +202,7 @@ int main(int argc, char** argv)
                 {
                     if(std::regex_match(word, regex))
                     {
-                        from.insert(word);
+                        from.push_back(word);
                         std::cout<<"\t"<<word<<std::endl;
                     }
                 }
