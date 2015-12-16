@@ -34,7 +34,12 @@ SOFTWARE.
 #include <regex>
 #include <algorithm>
 #include <cstring>
-static std::vector<std::string> read_lines_tolower(const char* path)
+#ifdef NDEBUG
+    #define STATIC static
+#else
+    #define STATIC
+#endif
+STATIC std::vector<std::string> read_lines_tolower(const char* path)
 {
     std::vector<std::string> res;
     std::ifstream file;
@@ -55,47 +60,39 @@ static std::vector<std::string> read_lines_tolower(const char* path)
     file.close();
     return res;
 }
-static void analyze_initial(
+STATIC void analyze_initial(
     const std::string& word,
     size_t& len,
     bool& has_long_vowel,
     const char*& vowel
 ){
-    static const char* vowels[]={"a","e","i","o","u","y","å","ä","ö","é"};
-    const char* word_str=word.c_str();
+    static const char vowels[][4]={"a","e","i","o","u","y","å","ä","ö","é"};
+    const char* word_str=nullptr;
     vowel=nullptr;
     has_long_vowel=false;
     len=0;
-    while(*word_str!=0)
+    for(word_str=word.c_str();!vowel&&*word_str!=0;word_str++)
     {
         // Check if the character is a vowel
-        for(size_t i=0;i<sizeof(vowels)/sizeof(const char*);++i)
+        for(size_t i=0;i<sizeof(vowels)/sizeof(const char[4]);++i)
         {
             size_t vlen=strlen(vowels[i]);
             if(strncmp(word_str, vowels[i], vlen)==0)
             {
                 vowel=vowels[i];
                 word_str+=vlen;
+                if(strncmp(word_str, vowel, vlen)==0)
+                {
+                    has_long_vowel=true;
+                    word_str+=vlen;
+                }
                 break;
             }
         }
-        if(vowel)
-        {
-            if(strncmp(word_str, vowel, strlen(vowel))==0)
-            {
-                has_long_vowel=true;
-                word_str+=strlen(vowel);
-            }
-            break;
-        }
-        else
-        {
-            word_str++;
-        }
     }
-    len=word_str-word.c_str();
+    len=word_str-word.c_str()-1;
 }
-static bool sananmuunnos(
+STATIC bool sananmuunnos(
     const std::string& word1,
     const std::string& word2,
     std::string& out_word1,
@@ -142,12 +139,12 @@ static bool sananmuunnos(
     return true;
 }
 template<typename T>
-static bool is_in_sorted_vector(const T& t, const std::vector<T>& vec)
+STATIC bool is_in_sorted_vector(const T& t, const std::vector<T>& vec)
 {
     auto it=std::lower_bound(vec.begin(), vec.end(), t);
     return it!=vec.end()&&*it==t;
 }
-static size_t search_and_print(
+STATIC size_t search_and_print(
     const std::vector<std::string>& search_words,
     const std::vector<std::string>& all_words
 ){
