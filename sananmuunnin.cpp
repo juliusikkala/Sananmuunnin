@@ -28,12 +28,14 @@ SOFTWARE.
 #include <cstdio>
 #include <string>
 #include <iostream>
+#include <cassert>
 #include <fstream>
 #include <stdexcept>
 #include <vector>
 #include <regex>
 #include <algorithm>
 #include <cstring>
+#include <thread>
 #ifdef NDEBUG
     #define STATIC static
 #else
@@ -159,38 +161,94 @@ STATIC size_t search_and_print(
                is_in_sorted_vector(out_word2, all_words))
             {
                 n++;
-                std::cout<<word1<<" "<<word2<<" => "<<out_word1<<" "<<out_word2<<std::endl;
+                std::cout<<word1<<" "<<word2<<" => "<<out_word1<<" "
+                         <<out_word2<<std::endl;
             }
         }
     }
     return n;
 }
+enum search_type
+{
+    SEARCH_ALL,
+    SEARCH_WORD,
+    SEARCH_REGEX
+};
+struct arguments {
+    std::string dictionary_path;
+    search_type search;
+    std::string search_word;
+    unsigned threads;
+};
+bool parse_arguments(int argc, char** argv, arguments& args)
+{
+    args.search=SEARCH_ALL;
+    args.search_word="";
+    args.threads=0;
+    if(argc<2)
+    {
+        return false;
+    }
+    args.dictionary_path=argv[1];
+    for(int i=2;i<argc;++i)
+    {
+        if(strcmp("-r", argv[i])==0)
+        {
+            i++;
+            if(i>=argc) return false;
+            args.search=SEARCH_REGEX;
+            args.search_word=argv[i];
+        }
+        else if(strcmp("-t", argv[i])==0)
+        {
+            i++;
+            if(i>=argc) return false;
+            char* endptr=nullptr;
+            args.threads=strtoul(argv[i], &endptr, 10);
+            if(endptr!=argv[i]+strlen(argv[i]))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            args.search=SEARCH_WORD;
+            args.search_word=argv[i];
+        }
+    }
+    return true;
+}
 int main(int argc, char** argv)
 {
-    if(argc<2||argc>4||(argc==4&&strcmp(argv[2], "-r")!=0))
+    arguments args;
+    if(!parse_arguments(argc, argv, args))
     {
-        std::cerr<<"Usage: "<<argv[0]<<" wordlist [word|-r regex]\n";
+        std::cerr<<"Usage: "<<argv[0]
+                 <<" dictionary [word|-r regex] [-t threads]\n";
         return 1;
     }
     try {
-        std::vector<std::string> words(read_lines_tolower(argv[1]));
+        std::vector<std::string> words(
+            read_lines_tolower(args.dictionary_path.c_str())
+        );
         /* The vector must be sorted so that it can be used with lower_bound*/
         std::sort(words.begin(), words.end());
-        if(argc==2)
+        size_t n=0;
+        if(args.search==SEARCH_ALL)
         {
-            search_and_print(words, words);
+            n=search_and_print(words, words);
         }
         else
         {
             std::vector<std::string> from;
-            if(argc==3)
+            if(args.search==SEARCH_WORD)
             {
-                from.push_back(argv[2]);
+                from.push_back(args.search_word);
             }
-            else if(argc==4)
+            else if(args.search==SEARCH_REGEX)
             {
                 std::regex regex(
-                    argv[3],
+                    args.search_word,
                     std::regex_constants::grep|std::regex_constants::icase
                 );
                 std::cout<<"Searching for following regex matches: "
@@ -204,10 +262,13 @@ int main(int argc, char** argv)
                     }
                 }
             }
-            size_t n=search_and_print(from, words);
-            std::cout<<n<<" found "<<std::endl;
+            else
+            {
+                assert(false);
+            }
+            n=search_and_print(from, words);
         }
-    
+        std::cout<<n<<" found "<<std::endl;
     }
     catch(std::exception& e)
     {
