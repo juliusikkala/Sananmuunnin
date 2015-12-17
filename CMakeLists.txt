@@ -29,9 +29,9 @@ set(CMAKE_MODULE_PATH "${PROJECT_BINARY_DIR}/cmake/" ${CMAKE_MODULE_PATH})
 option(DEBUG "Compile in debug mode" OFF)
 
 if(DEBUG)
-    set(CMAKE_CXX_FLAGS "-Wall -Wextra -Wpedantic -O3 -g3 -pg -std=c++11 -fprofile-arcs -ftest-coverage")
+    set(CMAKE_CXX_FLAGS "-Wall -Wextra -Wpedantic -O3 -g3 -pg -std=c++11 -pthread -fprofile-arcs -ftest-coverage")
 else(DEBUG)
-    set(CMAKE_CXX_FLAGS "-Wall -Wextra -Wpedantic -O3 -std=c++11 -DNDEBUG")
+    set(CMAKE_CXX_FLAGS "-Wall -Wextra -Wpedantic -O3 -std=c++11 -pthread -DNDEBUG")
 endif(DEBUG)
 
 if(MINGW)

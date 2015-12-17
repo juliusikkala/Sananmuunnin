@@ -39,6 +39,7 @@ SOFTWARE.
 #include <sstream>
 #include <cstring>
 #include <thread>
+#define MAX_THREADS  64
 #ifdef NDEBUG
     #define STATIC static
 #else
@@ -193,15 +194,17 @@ STATIC bool sananmuunnos(
     out_word2.append(word2, word2_data.mora_len, std::string::npos);
     return true;
 }
-STATIC void search_and_format(
-    const dictionary& dict1,
+STATIC void search_and_print_worker(
+    dictionary::const_iterator dict1_begin,
+    dictionary::const_iterator dict1_end,
     const dictionary& dict2,
     const search_dictionary& sdict,
     std::vector<std::string>& formatted
 ){
     std::string out_word1, out_word2;
-    for(const dictionary_entry& entry1: dict1)
+    for(dictionary::const_iterator it=dict1_begin;it!=dict1_end;++it)
     {
+        const dictionary_entry& entry1=*it;
         for(const dictionary_entry& entry2: dict2)
         {
             sananmuunnos(
@@ -222,6 +225,81 @@ STATIC void search_and_format(
             }
         }
     }
+}
+STATIC void print_vector(const std::vector<std::string>& v)
+{
+    for(const std::string& str: v)
+    {
+        std::cout<<str<<std::endl;
+    }
+}
+STATIC size_t search_and_print(
+    const dictionary& dict1,
+    const dictionary& dict2,
+    const search_dictionary& sdict,
+    unsigned threads
+){
+    size_t n=0;
+    //Ensure that all there aren't unnecessarily many threads.
+    while(threads!=0&&dict1.size()/threads==0)
+    {
+        threads/=2;
+    }
+    if(threads>1)
+    {
+        std::vector<std::thread> pool;
+        std::vector<std::vector<std::string> > output(threads);
+
+        size_t sector_length=dict1.size()/threads;
+        dictionary::const_iterator begin=dict1.begin()+sector_length;
+        dictionary::const_iterator end=begin+sector_length;
+        //spawn worker threads
+        for(unsigned i=1;i<threads;++i)
+        {
+            pool.push_back(
+                std::thread(
+                    search_and_print_worker,
+                    begin,
+                    (i==threads-1?dict1.end():end),
+                    std::cref(dict2),
+                    std::cref(sdict),
+                    std::ref(output[i])
+                )
+            );
+            begin=end;
+            end+=sector_length;
+        }
+        //Start working on the first sector
+        search_and_print_worker(
+            dict1.begin(),
+            dict1.begin()+sector_length,
+            dict2,
+            sdict,
+            output[0]
+        );
+        n+=output[0].size();
+        print_vector(output[0]);
+        for(unsigned i=1;i<threads;++i)
+        {
+            pool[i-1].join();
+            n+=output[i].size();
+            print_vector(output[i]);
+        }
+    }
+    else
+    {
+        std::vector<std::string> formatted;
+        search_and_print_worker(
+            dict1.begin(),
+            dict1.end(),
+            dict2,
+            sdict,
+            formatted
+        );
+        n=formatted.size();
+        print_vector(formatted);
+    }
+    return n;
 }
 enum search_type
 {
@@ -282,13 +360,19 @@ int main(int argc, char** argv)
                  <<" dictionary [word|-r regex] [-t threads]\n";
         return 1;
     }
+    if(args.threads>MAX_THREADS)
+    {
+        std::cerr<<"Too many threads specified! The maximum is "<<MAX_THREADS
+                 <<"."<<std::endl;
+        return 2;
+    }
     try {
         dictionary dict(read_dictionary(args.dictionary_path.c_str()));
         search_dictionary sdict(search_dictionary_from_dictionary(dict));
-        std::vector<std::string> formatted;
+        size_t n=0;
         if(args.search==SEARCH_ALL)
         {
-            search_and_format(dict, dict, sdict, formatted);
+            n=search_and_print(dict, dict, sdict, args.threads);
         }
         else
         {
@@ -318,13 +402,9 @@ int main(int argc, char** argv)
             {
                 assert(false);
             }
-            search_and_format(from, dict, sdict, formatted);
+            n=search_and_print(from, dict, sdict, args.threads);
         }
-        for(const std::string& str: formatted)
-        {
-            std::cout<<str<<std::endl;
-        }
-        std::cout<<formatted.size()<<" found "<<std::endl;
+        std::cout<<n<<" found "<<std::endl;
     }
     catch(std::exception& e)
     {
