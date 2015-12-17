@@ -32,9 +32,11 @@ SOFTWARE.
 #include <fstream>
 #include <stdexcept>
 #include <vector>
-#include <map>
+#include <set>
+#include <unordered_set>
 #include <regex>
 #include <algorithm>
+#include <sstream>
 #include <cstring>
 #include <thread>
 #ifdef NDEBUG
@@ -49,12 +51,35 @@ struct word_data
     bool has_long_vowel;
     const char* vowel;
 };
-typedef std::map<std::string, word_data> dictionary;
+struct dictionary_entry
+{
+    dictionary_entry(const std::string& word, const word_data& data)
+    : word(word), data(data)
+    {}
+    std::string word;
+    word_data data;
+};
+//Used for checking if the formed string is a proper word (O(1) lookup)
+typedef std::unordered_set<std::string> search_dictionary;
+//Used for actually iterating through words. (simple iteration, random access
+//iterator, sorted)
+typedef std::vector<dictionary_entry> dictionary;
+
 STATIC bool word_in_dictionary(
     const std::string& word,
+    const search_dictionary& sdict
+){
+    return sdict.count(word);
+}
+STATIC search_dictionary search_dictionary_from_dictionary(
     const dictionary& dict
 ){
-    return dict.count(word);
+    search_dictionary sdict;
+    for(const dictionary_entry& entry: dict)
+    {
+        sdict.insert(entry.word);
+    }
+    return sdict;
 }
 STATIC word_data analyze_word(const std::string& word)
 {
@@ -89,7 +114,7 @@ STATIC void dictionary_add(
     dictionary& dict,
     const std::string& word
 ){
-    dict.insert(std::pair<std::string, word_data>(word, analyze_word(word)));
+    dict.push_back(dictionary_entry(word, analyze_word(word)));
 }
 STATIC dictionary read_dictionary(const char* path)
 {
@@ -101,13 +126,19 @@ STATIC dictionary read_dictionary(const char* path)
         throw std::runtime_error(std::string(path)+": Unable to read file");
     }
     std::string str;
+    std::set<std::string> unique_lines;
     while(std::getline(file, str, '\n'))
     {
         if(str.size()!=0)
         {
             std::transform(str.begin(), str.end(), str.begin(), ::tolower);
-            dictionary_add(dict, str);
+            unique_lines.insert(str);
         }
+    }
+    dict.reserve(unique_lines.size());
+    for(const std::string& line: unique_lines)
+    {
+        dictionary_add(dict, line);
     }
     file.close();
     return dict;
@@ -162,34 +193,35 @@ STATIC bool sananmuunnos(
     out_word2.append(word2, word2_data.mora_len, std::string::npos);
     return true;
 }
-STATIC size_t search_and_print(
-    const dictionary& search_dict,
-    const dictionary& dict
+STATIC void search_and_format(
+    const dictionary& dict1,
+    const dictionary& dict2,
+    const search_dictionary& sdict,
+    std::vector<std::string>& formatted
 ){
     std::string out_word1, out_word2;
-    size_t n=0;
-    for(const auto& search_it: search_dict)
+    for(const dictionary_entry& entry1: dict1)
     {
-        for(const auto& it: dict)
+        for(const dictionary_entry& entry2: dict2)
         {
             sananmuunnos(
-                search_it.first,
-                search_it.second,
-                it.first,
-                it.second,
+                entry1.word,
+                entry1.data,
+                entry2.word,
+                entry2.data,
                 out_word1,
                 out_word2
             );
-            if(word_in_dictionary(out_word1, dict)&&
-               word_in_dictionary(out_word2, dict))
+            if(word_in_dictionary(out_word1, sdict)&&
+               word_in_dictionary(out_word2, sdict))
             {
-                n++;
-                std::cout<<search_it.first<<" "<<it.first<<" => "<<out_word1
-                         <<" "<<out_word2<<std::endl;
+                std::stringstream ss;
+                ss<<entry1.word<<" "<<entry2.word<<" => "<<out_word1<<" "
+                  <<out_word2;
+                formatted.push_back(ss.str());
             }
         }
     }
-    return n;
 }
 enum search_type
 {
@@ -252,10 +284,11 @@ int main(int argc, char** argv)
     }
     try {
         dictionary dict(read_dictionary(args.dictionary_path.c_str()));
-        size_t n=0;
+        search_dictionary sdict(search_dictionary_from_dictionary(dict));
+        std::vector<std::string> formatted;
         if(args.search==SEARCH_ALL)
         {
-            n=search_and_print(dict, dict);
+            search_and_format(dict, dict, sdict, formatted);
         }
         else
         {
@@ -272,12 +305,12 @@ int main(int argc, char** argv)
                 );
                 std::cout<<"Searching for following regex matches: "
                          <<std::endl;
-                for(const auto& it: dict)
+                for(const dictionary_entry& entry: dict)
                 {
-                    if(std::regex_match(it.first, regex))
+                    if(std::regex_match(entry.word, regex))
                     {
-                        dictionary_add(from, it.first);
-                        std::cout<<"\t"<<it.first<<std::endl;
+                        dictionary_add(from, entry.word);
+                        std::cout<<"\t"<<entry.word<<std::endl;
                     }
                 }
             }
@@ -285,9 +318,13 @@ int main(int argc, char** argv)
             {
                 assert(false);
             }
-            n=search_and_print(from, dict);
+            search_and_format(from, dict, sdict, formatted);
         }
-        std::cout<<n<<" found "<<std::endl;
+        for(const std::string& str: formatted)
+        {
+            std::cout<<str<<std::endl;
+        }
+        std::cout<<formatted.size()<<" found "<<std::endl;
     }
     catch(std::exception& e)
     {
