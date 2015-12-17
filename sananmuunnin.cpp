@@ -32,6 +32,7 @@ SOFTWARE.
 #include <fstream>
 #include <stdexcept>
 #include <vector>
+#include <map>
 #include <regex>
 #include <algorithm>
 #include <cstring>
@@ -41,9 +42,58 @@ SOFTWARE.
 #else
     #define STATIC
 #endif
-STATIC std::vector<std::string> read_lines_tolower(const char* path)
+static const char vowels[][4]={"a","e","i","o","u","y","å","ä","ö","é"};
+struct word_data
 {
-    std::vector<std::string> res;
+    size_t mora_len;
+    bool has_long_vowel;
+    const char* vowel;
+};
+typedef std::map<std::string, word_data> dictionary;
+STATIC bool word_in_dictionary(
+    const std::string& word,
+    const dictionary& dict
+){
+    return dict.count(word);
+}
+STATIC word_data analyze_word(const std::string& word)
+{
+    const char* word_str=nullptr;
+    word_data data;
+    data.mora_len=0;
+    data.has_long_vowel=false;
+    data.vowel=nullptr;
+    for(word_str=word.c_str();!data.vowel&&*word_str!=0;word_str++)
+    {
+        // Check if the character is a vowel
+        for(size_t i=0;i<sizeof(vowels)/sizeof(const char[4]);++i)
+        {
+            size_t vlen=strlen(vowels[i]);
+            if(strncmp(word_str, vowels[i], vlen)==0)
+            {
+                data.vowel=vowels[i];
+                word_str+=vlen;
+                if(strncmp(word_str, data.vowel, vlen)==0)
+                {
+                    data.has_long_vowel=true;
+                    word_str+=vlen;
+                }
+                break;
+            }
+        }
+    }
+    data.mora_len=word_str-word.c_str()-1;
+    return data;
+}
+STATIC void dictionary_add(
+    dictionary& dict,
+    const std::string& word
+){
+    dict.insert(std::pair<std::string, word_data>(word, analyze_word(word)));
+}
+STATIC dictionary read_dictionary(const char* path)
+{
+    dictionary dict;
     std::ifstream file;
     file.open(path, std::ios::in|std::ios::binary);
     if(!file)
@@ -56,113 +106,86 @@ STATIC std::vector<std::string> read_lines_tolower(const char* path)
         if(str.size()!=0)
         {
             std::transform(str.begin(), str.end(), str.begin(), ::tolower);
-            res.push_back(str);
+            dictionary_add(dict, str);
         }
     }
     file.close();
-    return res;
-}
-STATIC void analyze_initial(
-    const std::string& word,
-    size_t& len,
-    bool& has_long_vowel,
-    const char*& vowel
-){
-    static const char vowels[][4]={"a","e","i","o","u","y","å","ä","ö","é"};
-    const char* word_str=nullptr;
-    vowel=nullptr;
-    has_long_vowel=false;
-    len=0;
-    for(word_str=word.c_str();!vowel&&*word_str!=0;word_str++)
-    {
-        // Check if the character is a vowel
-        for(size_t i=0;i<sizeof(vowels)/sizeof(const char[4]);++i)
-        {
-            size_t vlen=strlen(vowels[i]);
-            if(strncmp(word_str, vowels[i], vlen)==0)
-            {
-                vowel=vowels[i];
-                word_str+=vlen;
-                if(strncmp(word_str, vowel, vlen)==0)
-                {
-                    has_long_vowel=true;
-                    word_str+=vlen;
-                }
-                break;
-            }
-        }
-    }
-    len=word_str-word.c_str()-1;
+    return dict;
 }
 STATIC bool sananmuunnos(
     const std::string& word1,
+    const word_data& word1_data,
     const std::string& word2,
+    const word_data& word2_data,
     std::string& out_word1,
     std::string& out_word2
 ){
     out_word1.clear();
     out_word2.clear();
-    
-    size_t word1_len=0;
-    bool word1_has_long_vowel=false;
-    const char* word1_vowel=nullptr;
-    analyze_initial(word1, word1_len, word1_has_long_vowel, word1_vowel);
-    
-    size_t word2_len=0;
-    bool word2_has_long_vowel=false;
-    const char* word2_vowel=nullptr;
-    analyze_initial(word2, word2_len, word2_has_long_vowel, word2_vowel);
 
-    size_t shortest_len=word1_len<word2_len?word1_len:word2_len;
-    if(word1_vowel==nullptr||word2_vowel==nullptr
+    size_t shortest_len=
+        word1_data.mora_len<word2_data.mora_len?
+        word1_data.mora_len:word2_data.mora_len;
+    if(word1_data.vowel==nullptr||word2_data.vowel==nullptr
        ||strncmp(word1.c_str(), word2.c_str(), shortest_len)==0
-       ||strcmp(word1.c_str()+word1_len, word2.c_str()+word2_len)==0)
-    {
+       ||strcmp(
+            word1.c_str()+word1_data.mora_len,
+            word2.c_str()+word2_data.mora_len)==0
+    ){
         return false;
     }
-    if(word1_has_long_vowel==word2_has_long_vowel){
-        out_word1.append(word2, 0, word2_len);
-        out_word2.append(word1, 0, word1_len);
+    if(word1_data.has_long_vowel==word2_data.has_long_vowel){
+        out_word1.append(word2, 0, word2_data.mora_len);
+        out_word2.append(word1, 0, word1_data.mora_len);
     }
-    else if(word1_has_long_vowel==false&&word2_has_long_vowel==true)
+    else if(word1_data.has_long_vowel==false&&word2_data.has_long_vowel==true)
     {
-        out_word1.append(word2, 0, word2_len-strlen(word2_vowel));
-        out_word2.append(word1, 0, word1_len);
-        out_word2.append(word1_vowel);
+        out_word1.append(
+            word2,
+            0,
+            word2_data.mora_len-strlen(word2_data.vowel)
+        );
+        out_word2.append(word1, 0, word1_data.mora_len);
+        out_word2.append(word1_data.vowel);
     }
     else
     {
-        out_word2.append(word1, 0, word1_len-strlen(word1_vowel));
-        out_word1.append(word2, 0, word2_len);
-        out_word1.append(word2_vowel);
+        out_word2.append(
+            word1,
+            0,
+            word1_data.mora_len-strlen(word1_data.vowel)
+        );
+        out_word1.append(word2, 0, word2_data.mora_len);
+        out_word1.append(word2_data.vowel);
     }
-    out_word1.append(word1, word1_len, std::string::npos);
-    out_word2.append(word2, word2_len, std::string::npos);
+    out_word1.append(word1, word1_data.mora_len, std::string::npos);
+    out_word2.append(word2, word2_data.mora_len, std::string::npos);
     return true;
 }
-template<typename T>
-STATIC bool is_in_sorted_vector(const T& t, const std::vector<T>& vec)
-{
-    auto it=std::lower_bound(vec.begin(), vec.end(), t);
-    return it!=vec.end()&&*it==t;
-}
 STATIC size_t search_and_print(
-    const std::vector<std::string>& search_words,
-    const std::vector<std::string>& all_words
+    const dictionary& search_dict,
+    const dictionary& dict
 ){
     std::string out_word1, out_word2;
     size_t n=0;
-    for(const std::string& word1: search_words)
+    for(const auto& search_it: search_dict)
     {
-        for(const std::string& word2: all_words)
+        for(const auto& it: dict)
         {
-            sananmuunnos(word1, word2, out_word1, out_word2);
-            if(is_in_sorted_vector(out_word1, all_words)&&
-               is_in_sorted_vector(out_word2, all_words))
+            sananmuunnos(
+                search_it.first,
+                search_it.second,
+                it.first,
+                it.second,
+                out_word1,
+                out_word2
+            );
+            if(word_in_dictionary(out_word1, dict)&&
+               word_in_dictionary(out_word2, dict))
             {
                 n++;
-                std::cout<<word1<<" "<<word2<<" => "<<out_word1<<" "
-                         <<out_word2<<std::endl;
+                std::cout<<search_it.first<<" "<<it.first<<" => "<<out_word1
+                         <<" "<<out_word2<<std::endl;
             }
         }
     }
@@ -228,22 +251,18 @@ int main(int argc, char** argv)
         return 1;
     }
     try {
-        std::vector<std::string> words(
-            read_lines_tolower(args.dictionary_path.c_str())
-        );
-        /* The vector must be sorted so that it can be used with lower_bound*/
-        std::sort(words.begin(), words.end());
+        dictionary dict(read_dictionary(args.dictionary_path.c_str()));
         size_t n=0;
         if(args.search==SEARCH_ALL)
         {
-            n=search_and_print(words, words);
+            n=search_and_print(dict, dict);
         }
         else
         {
-            std::vector<std::string> from;
+            dictionary from;
             if(args.search==SEARCH_WORD)
             {
-                from.push_back(args.search_word);
+                dictionary_add(from, args.search_word);
             }
             else if(args.search==SEARCH_REGEX)
             {
@@ -253,12 +272,12 @@ int main(int argc, char** argv)
                 );
                 std::cout<<"Searching for following regex matches: "
                          <<std::endl;
-                for(const std::string& word: words)
+                for(const auto& it: dict)
                 {
-                    if(std::regex_match(word, regex))
+                    if(std::regex_match(it.first, regex))
                     {
-                        from.push_back(word);
-                        std::cout<<"\t"<<word<<std::endl;
+                        dictionary_add(from, it.first);
+                        std::cout<<"\t"<<it.first<<std::endl;
                     }
                 }
             }
@@ -266,7 +285,7 @@ int main(int argc, char** argv)
             {
                 assert(false);
             }
-            n=search_and_print(from, words);
+            n=search_and_print(from, dict);
         }
         std::cout<<n<<" found "<<std::endl;
     }
